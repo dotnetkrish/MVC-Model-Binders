@@ -1,0 +1,15 @@
+﻿@model ModelBindings.Models.Employee
+
+@{
+    ViewBag.Title = "Index";
+}
+
+<h2>Index</h2>
+@using (Html.BeginForm("Index", "Home", FormMethod.Post))
+{
+    @:FirstName : <input type="text" name="firstname"/>
+    @:LastName : <input type="text" name="lastname"/>
+    @:Age : <input type="text" name="Age"/>
+    <input type="submit" value="Submit" />
+}
+
