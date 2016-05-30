@@ -1,0 +1,219 @@
+Enter file contents herefunction Copy-Directory
+{
+    param (
+        [parameter(Mandatory = $true)] [string] $source,
+        [parameter(Mandatory = $true)] [string] $destination,
+        [Parameter(Mandatory = $true,ValueFromPipeline=$True)] [string]$username,
+        [Parameter(Mandatory = $true,ValueFromPipeline=$True)] [string]$password,        
+        [Parameter(Mandatory = $true,ValueFromPipeline=$True)] [string]$IsFullBackup,
+        [Parameter(Mandatory = $true,ValueFromPipeline=$True)] [string]$BackupFolder,
+        [Parameter(Mandatory = $true,ValueFromPipeline=$True)] [string]$servername
+    )
+
+    try
+    {
+	$net = New-Object -com WScript.Network
+	$drive = "I:"
+	$Backupdrive = "J:"
+    $objFSO = New-Object -com Scripting.FileSystemObject
+
+    
+	if ([System.IO.Directory]::Exists($drive) -eq "True"){
+    $net.RemoveNetworkDrive($drive,0)
+    }
+    
+   If($objFSO.DriveExists($drive)) {
+   $objReg = Get-Object "winmgmts:{impersonationLevel=impersonate}!\\.\root\default:StdRegProv"
+   $objReg.DeleteKey("HKCU:\Network\" + $drive)
+   $objReg = null
+   
+    }
+
+    #$net.mapnetworkdrive($drive, $destination, $true, $username, $password)
+    $net.mapnetworkdrive($drive, $destination)
+    "`r Network Drive " + $drive + " Created`r"
+    "`r"
+    if ([System.IO.Directory]::Exists($Backupdrive) -eq "True"){
+    $net.RemoveNetworkDrive($Backupdrive,0)
+    }
+    
+   If($objFSO.DriveExists($Backupdrive)) {
+   $objReg = Get-Object "winmgmts:{impersonationLevel=impersonate}!\\.\root\default:StdRegProv"
+   $objReg.DeleteKey("HKCU:\Network\" + $Backupdrive)
+   $objReg = null
+   
+    }
+    
+   
+    #$net.mapnetworkdrive($Backupdrive, $BackupFolder, $true, $username, $password)
+    $net.mapnetworkdrive($Backupdrive, $BackupFolder)
+    "`r Network Drive for Backup " + $Backupdrive + " Created`r"
+    
+
+
+	$a = Get-Date -format "MMddyyyyHHmmss"
+    $BackupFolderName = $source.substring($source.LastIndexof("\") + 1)
+    $BackupFolderWithDate = $BackupFolder + "\" + $BackupFolderName + $a 
+    
+    
+
+
+
+	if (!(test-path $BackupFolderWithDate )){$null = New-Item -ItemType Container -Path $BackupFolderWithDate}
+
+	if($IsFullBackup -eq "true"){
+			"`r"		
+			"`r-------------------Starting Full Backup--------------------`r"
+            "`r"
+			        Get-ChildItem -Path $destination -Recurse -Force |
+			            Where-Object { $_.psIsContainer } |
+			            ForEach-Object { $_.FullName -replace [regex]::Escape($destination), $BackupFolderWithDate} |
+			            ForEach-Object { $null = New-Item -ItemType Container -Path $_}
+
+			        Get-ChildItem -Path $destination -Recurse -Force |
+			            Where-Object { -not $_.psIsContainer } |
+			            Move-Item -Force -Destination { $_.FullName -replace [regex]::Escape($destination), $BackupFolderWithDate}
+            "`r"
+			"`r------------------Full Backup Completed--------------------`r"
+            "`r"	
+
+				    }
+	else
+		{
+			"`r"		
+			"`r----------------------Starting Partial Backup------------------`r"
+            "`r"
+
+			        Get-ChildItem -Path $source -Recurse -Force |
+				            Where-Object { $_.psIsContainer } |
+				            ForEach-Object {$_.FullName -replace [regex]::Escape($source), $destination} |
+				            ForEach-Object {
+						$folderNameInBackup = $_ -replace [regex]::Escape($destination), $BackupFolderWithDate
+						if (!(test-path $folderNameInBackup)) {
+							"`rCreating Folder " + $folderNameInBackup + "`r"
+							$null = New-Item -ItemType Container -Path $folderNameInBackup
+						     }
+						   }
+
+				Get-ChildItem -Path $source -Recurse -Force |
+				            Where-Object { -not $_.psIsContainer } |
+				            ForEach-Object {
+					    $fileNameInBackup = $_.FullName -replace [regex]::Escape($source), $BackupFolderWithDate
+					    $fileNameInDestination = $_.FullName -replace [regex]::Escape($source), $destination
+
+					    if (test-path $fileNameInDestination)
+							{	
+					    		"`rMoving the File " + $fileNameInDestination + "`r"
+					    		Copy-Item $fileNameInDestination $fileNameInBackup -Force  
+							}
+			   			}
+            "`r"
+			"`r------------------Partial Backup Completed-----------------`r"
+            "`r"
+		}
+
+
+	"`r--------------------------------Stopping IIS------------------------`r"
+		#IISRESET -start $servername /noforce
+	"`r"
+
+
+
+	"`r------------------------Starting Deployment--------------------`r"
+    "`r"
+
+        Get-ChildItem -Path $source -Recurse -Force |
+            Where-Object { $_.psIsContainer } |
+            ForEach-Object { $_.FullName -replace [regex]::Escape($source), $destination } |
+            ForEach-Object {
+				if (!(test-path $_)) {
+							"Creating Folder " + $_ + "`r"
+							$null = New-Item -ItemType Container -Path $_
+						     }
+			   }
+
+        Get-ChildItem -Path $source -Recurse -Force |
+            Where-Object { -not $_.psIsContainer } |
+            ForEach-Object {
+				"Moving the File " + $_.FullName + "`r"
+				$destFile =  $_.FullName -replace [regex]::Escape($source), $destination
+				Copy-Item $_.FullName $destFile -Force  
+			   }
+
+    "`r"
+    "`r--------------------Deployment Completed-------------------`r"
+    "`r"
+	$net.RemoveNetworkDrive($drive)
+    $net.RemoveNetworkDrive($Backupdrive)
+    
+    net use $drive /delete
+    net use $Backupdrive /delete
+    taskkill /f /IM explorer.exe
+    explorer.exe
+
+    
+
+    "`r"
+
+	"`r---------------------------------Starting IIS-----------------------`r"
+		#IISRESET -start $servername /noforce
+	
+	
+	
+		
+    }
+
+    catch
+    {
+        "`r$($MyInvocation.InvocationName): + $_`r"
+    }
+}
+
+
+
+#------------------------------------------------------------
+#  Variables
+#------------------------------------------------------------
+
+$ServerName = $args[0]
+
+$SourcePath = $args[1]
+$DestinationPath = $args[2]
+$BackupPath = $args[3]
+
+$userName = $args[4]
+$userPassword = $args[5]
+
+$isFullBackUp = $args[6]
+
+"`r"
+"`r"
+"`r`r`r=================== Starting the server" + $ServerName + "========================`r`r`r" 
+"`r"
+
+
+
+
+#Copy-Directory -source $SourcePath -destination $DestinationPath -username $userName  -password $userPassword -IsFullBackup $isFullBackUp -BackupFolder $BackupPath -servername $ServerName |Out-File $logFile -Width 500 -Append 
+if(test-path $sourcePath)
+{
+    if(test-path $DestinationPath)
+    {
+       Copy-Directory -source $SourcePath -destination $DestinationPath -username $userName  -password $userPassword -IsFullBackup $isFullBackUp -BackupFolder $BackupPath -servername $ServerName
+        #$SourcePath
+        
+    }
+    else 
+    {
+        "`r Destination folder " + $DestinationPath + " does not exists"
+    }
+}
+else
+{
+    "`r Source folder " + $sourcePath + " does not exists"
+}
+
+
+
+
+
